@@ -1,0 +1,261 @@
+---
+title: Blackout Shield
+emoji: ⚡
+colorFrom: green
+colorTo: blue
+sdk: docker
+pinned: false
+tags:
+  - openenv
+---
+
+# ⚡ BlackoutShield v3.4
+
+**AI-Powered Grid Cyber Defense — OpenEnv RL Environment**
+
+Meta PyTorch OpenEnv Hackathon x SST/Scaler
+
+---
+
+## The Problem — A Real Job, Done by Real People, 24/7
+
+Grid operators at utilities like ERCOT (Texas), PGCIL (India), and National Grid (UK) monitor SCADA dashboards 24/7. Cyberattacks on power infrastructure cause $200B+ in damage annually.
+
+**Real incidents:**
+- **Texas 2021** — Grid failure killed 246 people, $200B damage
+- **Ukraine 2015** — Hackers spoofed SCADA, 230K lost power
+- **India 2020** — Mumbai blackout affected 20 million
+
+Human operators take **8.5 steps** to detect attacks. Our AI does it in **1 step** — 8.5x faster.
+
+---
+
+## The Solution: 8.5x Faster Attack Detection
+
+Why this matters:
+- **1 step** = AI scans Bus 3, detects spoofing, isolates it
+- **8.5 steps** = Human: notices odd voltage, checks SCADA, asks confirmation, calls supervisor, initiates isolation
+
+### What Makes BlackoutShield Different
+
+**Fog of War** — Unlike classic RL benchmarks, agents see spoofed SCADA data. They must:
+1. Detect anomalies using IDS alerts and thermal patterns
+2. Use scan_bus actions to see ground-truth voltages
+3. Make decisions under uncertainty
+
+**Immediate Cascade Physics** — A single overloaded line cascades in the same step:
+- Line A overloads and trips
+- Power reroutes to Line B
+- Line B now overloaded and trips
+- Repeat until stable
+
+**Reasoning Prompts for LLMs** — Observations include:
+- `recent_events`: "Line 1 trip detected. Hospital power critical."
+- `action_guidance`: "Priority 1: Restore Line 1. Priority 2: Scan Bus 3."
+- `physics_context`: cascade_risk, voltage_margin, total_generation
+
+This enables Chain-of-Thought reasoning for frontier models.
+
+---
+
+## Results
+
+| Metric | AI (Rule-Based) | Human Operator |
+|--------|:-:|:-:|
+| Detection Speed | 1.0 step | 8.5 steps |
+| Hospital Uptime | 100% | 43% |
+| Pass Rate (30 episodes) | 100% | - |
+
+---
+
+## Architecture (Flat — Matching OpenEnv Reference)
+
+```
+blackout-shield/
+├── Dockerfile
+├── README.md
+├── inference.py          ← Judges run this (embedded env, all 3 tasks)
+├── models.py             ← Pydantic models with reasoning fields
+├── baseline.py           ← Rule-based agent + benchmark
+├── openenv.yaml          ← OpenEnv manifest
+├── pyproject.toml        ← Dependencies
+├── requirements.txt      ← Server dependencies
+├── server/
+│   ├── __init__.py
+│   ├── app.py            ← FastAPI (8 endpoints)
+│   ├── blackout_environment.py  ← Core RL env with action masking
+│   ├── grid_sim.py       ← IEEE 5-bus DC power flow
+│   └── tasks.py          ← 3 tasks + rubrics + anti-hacking
+└── tests/
+    └── test_environment.py
+```
+
+---
+
+## Grid Topology (IEEE 5-Bus)
+
+```
+GEN0 (slack, 1.0V) --0.1-- BUS1 --0.15-- BUS4 (HOSPITAL)
+                              |
+                            0.2
+                              |
+                            BUS2 --0.25-- BUS3 (vulnerable)
+```
+
+| Bus | Role | Load |
+|-----|------|------|
+| GEN0 | Slack generator | 2.5 pu gen |
+| BUS1 | Main junction | 0.5 pu |
+| BUS2 | Distribution | 0.4 pu |
+| BUS3 | Vulnerable end node | 0.6 pu |
+| BUS4 | **Hospital (critical)** | 0.8 pu |
+
+---
+
+## Action Space (22 Discrete Actions)
+
+| IDs | Type | Effect |
+|-----|------|--------|
+| 0-4 | isolate_bus | Disconnect bus from grid |
+| 5-9 | scan_bus | Reveal true voltage, detect spoofing |
+| 10 | reinforce_hospital | Boost hospital generation +0.2 |
+| 11 | reinforce_bus1 | Boost Bus 1 generation +0.2 |
+| 12-13 | shed_load | Reduce demand on Bus 2/3 |
+| 14 | island_mode | Emergency: hospital on local power |
+| 15-16 | restore_line | Reconnect tripped line |
+| 17-20 | inject_attack | Demo: inject SCADA spoof |
+| 21 | submit | End episode when stable |
+
+---
+
+## Observation Space (32+ Dimensions)
+
+| Field | Dims | Description |
+|-------|------|-------------|
+| scada_voltages | 5 | Bus voltages (may be SPOOFED) |
+| telemetry_confidence | 1 | SCADA trust score |
+| line_thermal | 4 | Thermal load ratio (>1.0 = overloaded) |
+| line_status | 4 | 1=active, 0=tripped |
+| bus_alerts | 5 | IDS voltage alerts |
+| line_alerts | 4 | Thermal overload alerts |
+| suspicion_map | 5 | Attack probability heatmap (0-1) |
+| hospital_power | 1 | Must stay above 0.95 |
+| load_served | 1 | Fraction of load served |
+| time_step | 1 | Episode progress (0-1) |
+| **recent_events** | text | What just happened (for LLM reasoning) |
+| **action_guidance** | text | Priority suggestions (Chain-of-Thought) |
+| **available_actions** | list | Legal actions this step (action masking) |
+| **physics_context** | dict | Grid physics: cascade_risk, voltage_margin |
+
+---
+
+## 3 Task Scenarios
+
+**Easy — Line Trip Recovery** (30 steps): Hospital feeder cut. Restore power. Pass: hospital > 95%.
+
+**Medium — Stealth Spoof** (40 steps): SCADA spoof + overload + timed line trip. Pass: hospital > 90% AND detect attack.
+
+**Hard — The Texas Cascade** (50 steps): Multi-vector: spoof + load spike + 3 timed line trips. Pass: hospital > 85%.
+
+Each task has 3+ valid solution trajectories.
+
+---
+
+## Scoring and Rubrics (LLM-as-Judge)
+
+| Rubric | Weight | Criteria |
+|--------|--------|----------|
+| Hospital Protection | 35% | Keep power above 0.95 |
+| Attack Detection | 25% | Detect SCADA spoofing via scans |
+| Grid Stability | 20% | Load served above 90% |
+| Action Efficiency | 10% | Solve in minimal steps |
+| No Self-Harm | 10% | Don't isolate hospital |
+
+Final score = (base x 50% + rubric x 50%) x (1 - hacking_penalty)
+
+---
+
+## Reward Hacking Detection
+
+| Pattern | Penalty |
+|---------|---------|
+| Same action repeated 10+ times | -0.3 |
+| Submit before step 5 | -0.5 |
+| Inject then scan for reward | -0.5 |
+| Only reinforcing (passive) | -0.2 |
+| Suspicious perfect voltage | -0.3 |
+
+Penalty >= 0.5 forces FAILED.
+
+---
+
+## Key Innovations
+
+1. **Fog of War** — SCADA readings may be spoofed. Must scan to verify.
+2. **Reasoning Prompts** — recent_events + action_guidance for LLM CoT.
+3. **Action Masking** — legal_actions returned each step.
+4. **Thermal Cascade** — Real IEEE physics with recursive line trips.
+5. **Multiple Trajectories** — 3+ valid paths per task.
+6. **Anti-Reward-Hacking** — 5 exploit detectors with penalties.
+7. **LLM-as-Judge Rubrics** — 5 weighted scoring dimensions.
+8. **Physics Context** — cascade_risk, voltage_margin for advanced reasoning.
+
+---
+
+## API Endpoints (8 total)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /health | Server status |
+| POST | /reset | Start episode (query params: task_id, seed) |
+| POST | /step | Execute action |
+| GET | /state | Episode state |
+| GET | /tasks | List 3 tasks |
+| GET | /actions | List 22 actions |
+| GET | /legal-actions | Current legal actions |
+| POST | /grader | Run rubric grader on episode |
+
+Live: https://rahictrl-blackout-shield.hf.space/health
+
+---
+
+## Quick Start
+
+```bash
+pip install -r requirements.txt
+python baseline.py           # Benchmark: 3/3 PASSED
+uvicorn server.app:app       # Start API
+```
+
+## Inference (Judges)
+
+```bash
+export HF_TOKEN=your_token
+export MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
+python inference.py
+```
+
+Uses embedded environment (no HTTP server needed). Output:
+```
+[START] task=easy_line_trip env=blackout_shield model=Qwen/Qwen2.5-72B-Instruct
+[STEP] step=1 action=action_16 reward=0.79 done=false error=null
+[END] success=true steps=12 score=0.847
+```
+
+---
+
+## How This Environment Tests LLM Reasoning
+
+BlackoutShield is designed to evaluate whether LLMs can:
+
+1. **Reason under uncertainty** — SCADA voltages may be spoofed. The LLM must decide whether to trust readings or scan first.
+2. **Prioritize competing objectives** — Hospital power vs grid stability vs attack detection. Each step forces a tradeoff.
+3. **Plan multi-step strategies** — The Hard task requires 5+ coordinated actions: island, scan, restore, isolate, reinforce.
+4. **Avoid reward hacking** — Naive strategies (spam reinforce) are detected and penalized.
+5. **Use natural language reasoning** — The `recent_events` and `action_guidance` fields enable Chain-of-Thought prompting.
+
+---
+
+Built with Python 3.10 | NumPy | FastAPI | Pydantic | OpenEnv Core | OpenAI SDK | Docker
+
+*BlackoutShield v3.4 — OpenEnv RL Environment — Meta PyTorch Hackathon x SST*

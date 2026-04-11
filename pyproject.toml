@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=65.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blackout-shield-env"
+version = "3.4.0"
+description = "AI-Powered Grid Cyber Defense — OpenEnv RL Environment"
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["openenv", "rl", "power-grid", "cyber-defense", "scada"]
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.22.0",
+    "pydantic>=2.0.0",
+    "numpy>=1.24.0",
+    "pyyaml>=6.0",
+    "openai>=1.0.0",
+    "requests>=2.25.0",
+]
+
+[project.scripts]
+server = "server.app:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0", "pytest-asyncio>=0.21.0"]
+demo = ["streamlit>=1.25.0"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

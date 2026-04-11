@@ -1,0 +1,7 @@
+spec_version: 1
+name: blackout-shield
+type: environment
+description: "AI-Powered Grid Cyber Defense — OpenEnv RL Environment. Detects SCADA spoofing, prevents thermal cascades, protects hospital power."
+runtime:
+  app: server.app:app
+  port: 8000
